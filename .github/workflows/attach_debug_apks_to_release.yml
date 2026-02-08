@@ -21,6 +21,13 @@ jobs:
         with:
           ref: ${{ env.GITHUB_REF }}
 
+      # ADICIONADO: Configurar Java 17 explicitamente é sempre bom para evitar erros no Gradle novo
+      - name: Setup java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Build and attach APKs to release
         shell: bash {0}
         env:
@@ -33,6 +40,20 @@ jobs:
               git push --delete origin "$GITHUB_REF"
               exit 1
           }
+
+          # --- MODIFICAÇÃO INÍCIO: PREPARAR ASSINATURA ---
+          echo "Setting up Signing Keystore..."
+          if [ -n "${{ secrets.RELEASE_KEYSTORE }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE }}" | base64 --decode > release.keystore
+            export KEYSTORE_FILE="$(pwd)/release.keystore"
+            export KEYSTORE_PASSWORD="${{ secrets.RELEASE_KEYSTORE_PASSWORD }}"
+            export KEY_ALIAS="${{ secrets.RELEASE_KEY_ALIAS }}"
+            export KEY_PASSWORD="${{ secrets.RELEASE_KEY_PASSWORD }}"
+            echo "Keystore decoded successfully."
+          else
+            echo "WARNING: RELEASE_KEYSTORE secret not found. Build will use insecure test key."
+          fi
+          # --- MODIFICAÇÃO FIM ---
 
           echo "Setting vars"
           RELEASE_VERSION_NAME="${GITHUB_REF/refs\/tags\//}"
@@ -47,6 +68,8 @@ jobs:
           echo "Building APKs for 'APK_VERSION_TAG' release"
           export TERMUX_APK_VERSION_TAG="$APK_VERSION_TAG" # Used by app/build.gradle
           export TERMUX_PACKAGE_VARIANT="${{ env.PACKAGE_VARIANT }}" # Used by app/build.gradle
+          
+          # O Gradle agora vai pegar as variáveis exportadas acima
           if ! ./gradlew assembleDebug; then
             exit_on_error "Build failed for '$APK_VERSION_TAG' release."
           fi
